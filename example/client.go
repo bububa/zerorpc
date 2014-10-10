@@ -29,5 +29,8 @@ func main() {
 	wg.Wait()
 	response, err := c.Invoke("hello", "Syd")
 	fmt.Println(response)
+	args := response.Args
+	//res := args.(map[string]interface{})
+	fmt.Println(string(args[0].(map[interface{}]interface{})["T"].([]byte)))
 	c.Close()
 }

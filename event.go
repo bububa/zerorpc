@@ -4,10 +4,28 @@ import (
 	"errors"
 	"github.com/bububa/go/codec"
 	uuid "github.com/bububa/gouuid"
+	"reflect"
+	"time"
 )
 
 // ZeroRPC protocol version
 const ProtocolVersion = 3
+
+var (
+	timeTyp = reflect.TypeOf(time.Time{})
+
+	timeEncExt = func(rv reflect.Value) ([]byte, error) {
+		return []byte(rv.Interface().(time.Time).Format(time.RFC3339)), nil
+	}
+
+	timeDecExt = func(rv reflect.Value, bs []byte) error {
+		tt, err := time.Parse(string(bs), time.RFC3339)
+		if err == nil {
+			rv.Set(reflect.ValueOf(tt))
+		}
+		return err
+	}
+)
 
 // Event representation
 type Event struct {
@@ -47,9 +65,14 @@ func (e *Event) packBytes() ([]byte, error) {
 		data = append(data, a)
 	}
 
-	var buf []byte
+	var (
+		buf []byte
+		mh  codec.MsgpackHandle
+	)
 
-	enc := codec.NewEncoderBytes(&buf, &codec.MsgpackHandle{})
+	mh.AddExt(timeTyp, 1, timeEncExt, timeDecExt)
+
+	enc := codec.NewEncoderBytes(&buf, &mh)
 	if err := enc.Encode(data); err != nil {
 		return nil, err
 	}
@@ -60,6 +83,7 @@ func (e *Event) packBytes() ([]byte, error) {
 // Unpacks an event fom MsgPack bytes
 func unPackBytes(b []byte) (*Event, error) {
 	var mh codec.MsgpackHandle
+	mh.AddExt(timeTyp, 1, timeEncExt, timeDecExt)
 	var v interface{}
 
 	dec := codec.NewDecoderBytes(b, &mh)

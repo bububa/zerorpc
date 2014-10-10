@@ -3,7 +3,6 @@ package zerorpc
 import (
 	"errors"
 	zmq "github.com/bububa/zmq4"
-	"log"
 )
 
 // ZeroRPC server representation,
@@ -129,7 +128,6 @@ func (s *Server) RegisterTask(name string, handlerFunc *func(v []interface{}) (i
 // it returns ErrNoTaskHandler if no handler is registered for the task
 func (s *Server) handleTask(ev *Event) (interface{}, error) {
 	if handler, found := s.handlers[ev.Name]; found {
-		log.Println(*handler)
 		return (*handler)(ev.Args)
 	}
 
@@ -146,42 +144,43 @@ func (s *Server) listen() error {
 		return err
 	}
 	var responseEvent *Event
+	var identity string
 	for {
 		barr, err := workerSocket.RecvMessageBytes(0)
-		log.Println(barr)
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
+			sendEvent(workerSocket, responseEvent, identity)
 			continue
 		}
-		var identity string
 		if len(barr) > 1 {
 			identity = string(barr[0])
 		}
 		ev, err := unPackBytes(barr[len(barr)-1])
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
+			sendEvent(workerSocket, responseEvent, identity)
 			continue
 		}
-		log.Println("handling task")
 		r, err := s.handleTask(ev)
-		log.Println("handled task")
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
+			sendEvent(workerSocket, responseEvent, identity)
 			continue
 		}
 		responseEvent, err = newEvent("OK", []interface{}{r})
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
-			continue
 		}
-
-		responseBytes, err := responseEvent.packBytes()
-		if err != nil {
-			continue
-		}
-		log.Println("sending message")
-		workerSocket.SendMessage(identity, responseBytes)
-		log.Println("sent message")
+		sendEvent(workerSocket, responseEvent, identity)
 	}
+	return nil
+}
+
+func sendEvent(workerSocket *zmq.Socket, responseEvent *Event, identity string) error {
+	responseBytes, err := responseEvent.packBytes()
+	if err != nil {
+		return err
+	}
+	workerSocket.SendMessage(identity, responseBytes)
 	return nil
 }

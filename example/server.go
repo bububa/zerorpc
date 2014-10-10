@@ -3,8 +3,13 @@ package main
 import (
 	"github.com/bububa/zerorpc"
 	"log"
-	//"time"
+	"time"
 )
+
+type Tmp struct {
+	W string
+	T time.Time
+}
 
 func main() {
 	server, err := zerorpc.NewServer("tcp://*:5000", 10)
@@ -13,7 +18,7 @@ func main() {
 	}
 	defer server.Close()
 	hello := func(v []interface{}) (interface{}, error) {
-		return "Hello, " + v[0].(string), nil
+		return &Tmp{W: "Hello, " + v[0].(string), T: time.Now()}, nil
 	}
 	server.RegisterTask("hello", &hello)
 	server.Run()
