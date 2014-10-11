@@ -1,6 +1,7 @@
 package zerorpc
 
 import (
+	//"encoding/json"
 	"errors"
 	"github.com/bububa/go/codec"
 	uuid "github.com/bububa/gouuid"
@@ -25,6 +26,19 @@ var (
 		}
 		return err
 	}
+
+	/*uint64Typ = reflect.TypeOf([]uint64{})
+
+	uint64EncExt = func(rv reflect.Value) ([]byte, error) {
+		return json.Marshal(rv.Interface().([]uint64))
+	}
+
+	uint64DecExt = func(rv reflect.Value, bs []byte) error {
+		var arr []uint64
+		err := json.Unmarshal(bs, &arr)
+		rv.Set(reflect.ValueOf(arr))
+		return err
+	}*/
 )
 
 // Event representation
@@ -71,6 +85,7 @@ func (e *Event) packBytes() ([]byte, error) {
 	)
 
 	mh.AddExt(timeTyp, 1, timeEncExt, timeDecExt)
+	//mh.AddExt(uint64Typ, 2, uint64EncExt, uint64DecExt)
 
 	enc := codec.NewEncoderBytes(&buf, &mh)
 	if err := enc.Encode(data); err != nil {
@@ -84,8 +99,9 @@ func (e *Event) packBytes() ([]byte, error) {
 func unPackBytes(b []byte) (*Event, error) {
 	var mh codec.MsgpackHandle
 	mh.AddExt(timeTyp, 1, timeEncExt, timeDecExt)
+	//mh.AddExt(uint64Typ, 2, uint64EncExt, uint64DecExt)
+	//mh.MapType = reflect.TypeOf(map[string]interface{}(nil))
 	var v interface{}
-
 	dec := codec.NewDecoderBytes(b, &mh)
 
 	err := dec.Decode(&v)

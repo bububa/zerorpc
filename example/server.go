@@ -9,6 +9,7 @@ import (
 type Tmp struct {
 	W string
 	T time.Time
+	N []uint64
 }
 
 func main() {
@@ -18,7 +19,7 @@ func main() {
 	}
 	defer server.Close()
 	hello := func(v []interface{}) (interface{}, error) {
-		return &Tmp{W: "Hello, " + v[0].(string), T: time.Now()}, nil
+		return &Tmp{W: "Hello, " + v[0].(string), T: time.Now(), N: []uint64{77223396834, 77223396833, 77223396835}}, nil
 	}
 	server.RegisterTask("hello", &hello)
 	server.Run()
