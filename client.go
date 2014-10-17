@@ -9,9 +9,11 @@ import (
 // ZeroRPC client representation,
 // it holds a pointer to the ZeroMQ socket
 type Client struct {
-	endpoint     string
-	context      *zmq.Context
-	dealerSocket *zmq.Socket
+	endpoint       string
+	routerEndpoint string
+	context        *zmq.Context
+	dealerSocket   *zmq.Socket
+	routerSocket   *zmq.Socket
 }
 
 // Connects to a ZeroRPC endpoint and returns a pointer to the new client
@@ -29,10 +31,18 @@ func NewClient(endpoint string) (*Client, error) {
 		return nil, err
 	}
 
+	uid, err := uuid.NewV4()
+	if err != nil {
+		return nil, err
+	}
+
+	routerEndpoint := fmt.Sprintf("inproc://%s", uid)
+
 	c := &Client{
-		endpoint:     endpoint,
-		context:      context,
-		dealerSocket: dealerSocket,
+		endpoint:       endpoint,
+		context:        context,
+		dealerSocket:   dealerSocket,
+		routerEndpoint: routerEndpoint,
 	}
 
 	return c, nil
@@ -90,12 +100,18 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 	if err != nil {
 		return nil, err
 	}
+	var endpoint string
+	if c.routerSocket == nil {
+		endpoint = c.endpoint
+	} else {
+		endpoint = c.routerEndpoint
+	}
 	workerSocket, err := c.context.NewSocket(zmq.REQ)
 	if err != nil {
 		return nil, err
 	}
 	defer workerSocket.Close()
-	if err := workerSocket.Connect(c.endpoint); err != nil {
+	if err := workerSocket.Connect(endpoint); err != nil {
 		return nil, err
 	}
 	responseBytes, err := ev.packBytes()
@@ -112,61 +128,29 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 	return nil, nil
 }
 
-func (c *Client) InvokeAsync(name string, args ...interface{}) (*Event, error) {
-	ev, err := newEvent(name, args)
-	if err != nil {
-		return nil, err
-	}
-	uid, err := uuid.NewV4()
-	if err != nil {
-		return nil, err
-	}
-	dealerSocket, err := c.context.NewSocket(zmq.DEALER)
-	if err != nil {
-		return nil, err
-	}
-	defer dealerSocket.Close()
-	if err := dealerSocket.Connect(c.endpoint); err != nil {
-		return nil, err
-	}
-
-	routerEndpoint := fmt.Sprintf("inproc://%s", uid)
+func (c *Client) AsyncConnect() error {
 	routerSocket, err := c.context.NewSocket(zmq.ROUTER)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer routerSocket.Close()
-	if err := routerSocket.Bind(routerEndpoint); err != nil {
-		return nil, err
+	if err := routerSocket.Bind(c.routerEndpoint); err != nil {
+		return err
 	}
+	c.routerSocket = routerSocket
+	go zmq.Proxy(c.dealerSocket, c.routerSocket, nil)
+	return nil
+}
 
-	go zmq.Proxy(dealerSocket, routerSocket, nil)
-
-	workerSocket, err := c.context.NewSocket(zmq.REQ)
-	if err != nil {
-		return nil, err
-	}
-	defer workerSocket.Close()
-	if err := workerSocket.Connect(routerEndpoint); err != nil {
-		return nil, err
-	}
-
-	responseBytes, err := ev.packBytes()
-	if err != nil {
-		return nil, err
-	}
-	workerSocket.SendMessage("", responseBytes)
-	var responseEvent *Event
-	for {
-		barr, err := workerSocket.RecvMessageBytes(0)
-		responseEvent, err = unPackBytes(barr[len(barr)-1])
-		return responseEvent, err
-	}
-	return nil, nil
+func (c *Client) DisableAsync() {
+	c.routerSocket.Close()
+	c.routerSocket = nil
 }
 
 // Closes the ZeroMQ socket
 func (c *Client) Close() {
 	c.dealerSocket.Close()
+	if c.routerSocket != nil {
+		c.routerSocket.Close()
+	}
 	c.context.Term()
 }

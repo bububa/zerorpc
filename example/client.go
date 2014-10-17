@@ -1,13 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/XiBao/taobao/utils"
-	"github.com/bububa/go/codec"
 	"github.com/bububa/zerorpc"
 	"reflect"
-	//"sync"
+	"sync"
 	"time"
 )
 
@@ -38,14 +36,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 	defer c.Close()
-	/*var wg sync.WaitGroup
+	c.AsyncConnect()
+	var wg sync.WaitGroup
 	for i := 0; i <= 1000; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			response, err := c.InvokeAsync("hello", "John")
+			response, err := c.Invoke("hello", "John")
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -53,28 +51,8 @@ func main() {
 			fmt.Println(response)
 		}()
 	}
-	wg.Wait()*/
+	wg.Wait()
+	c.DisableAsync()
 	response, err := c.Invoke("hello", "Syd")
 	fmt.Println(response)
-	args := response.Args
-	fmt.Println(args[0].(map[interface{}]interface{})["N"].([]interface{}))
-	var (
-		mh      codec.MsgpackHandle
-		buf     []byte
-		request Tmp
-	)
-	mh.AddExt(timeTyp, 1, timeEncExt, timeDecExt)
-	enc := codec.NewEncoderBytes(&buf, &mh)
-	if err := enc.Encode(args[0]); err != nil {
-		fmt.Println(err)
-		return
-	}
-	dec := codec.NewDecoderBytes(buf, &mh)
-	err = dec.Decode(&request)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println(request)
-	c.Close()
 }
