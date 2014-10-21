@@ -23,14 +23,6 @@ func NewClient(endpoint string) (*Client, error) {
 		return nil, err
 	}
 
-	dealerSocket, err := context.NewSocket(zmq.DEALER)
-	if err != nil {
-		return nil, err
-	}
-	if err := dealerSocket.Connect(endpoint); err != nil {
-		return nil, err
-	}
-
 	uid, err := uuid.NewV4()
 	if err != nil {
 		return nil, err
@@ -41,7 +33,6 @@ func NewClient(endpoint string) (*Client, error) {
 	c := &Client{
 		endpoint:       endpoint,
 		context:        context,
-		dealerSocket:   dealerSocket,
 		routerEndpoint: routerEndpoint,
 	}
 
@@ -129,6 +120,14 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 }
 
 func (c *Client) AsyncConnect() error {
+	dealerSocket, err := c.context.NewSocket(zmq.DEALER)
+	if err != nil {
+		return err
+	}
+	if err := dealerSocket.Connect(c.endpoint); err != nil {
+		return err
+	}
+
 	routerSocket, err := c.context.NewSocket(zmq.ROUTER)
 	if err != nil {
 		return err
@@ -136,19 +135,28 @@ func (c *Client) AsyncConnect() error {
 	if err := routerSocket.Bind(c.routerEndpoint); err != nil {
 		return err
 	}
+	c.dealerSocket = dealerSocket
 	c.routerSocket = routerSocket
 	go zmq.Proxy(c.dealerSocket, c.routerSocket, nil)
 	return nil
 }
 
 func (c *Client) DisableAsync() {
-	c.routerSocket.Close()
-	c.routerSocket = nil
+	if c.dealerSocket != nil {
+		c.dealerSocket.Close()
+		c.dealerSocket = nil
+	}
+	if c.routerSocket != nil {
+		c.routerSocket.Close()
+		c.routerSocket = nil
+	}
 }
 
 // Closes the ZeroMQ socket
 func (c *Client) Close() {
-	c.dealerSocket.Close()
+	if c.dealerSocket != nil {
+		c.dealerSocket.Close()	
+	}
 	if c.routerSocket != nil {
 		c.routerSocket.Close()
 	}
