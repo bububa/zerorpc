@@ -4,16 +4,18 @@ import (
 	"fmt"
 	uuid "github.com/bububa/gouuid"
 	zmq "github.com/bububa/zmq4"
+	"math/rand"
 )
 
 // ZeroRPC client representation,
 // it holds a pointer to the ZeroMQ socket
 type Client struct {
 	endpoint       string
-	routerEndpoint string
 	context        *zmq.Context
-	dealerSocket   *zmq.Socket
-	routerSocket   *zmq.Socket
+	asyncPoolSize uint
+	asyncDealerPool []*zmq.Socket
+	asyncRouterPool []*zmq.Socket
+	asyncRouterEndpoints []string
 }
 
 // Connects to a ZeroRPC endpoint and returns a pointer to the new client
@@ -23,20 +25,17 @@ func NewClient(endpoint string) (*Client, error) {
 		return nil, err
 	}
 
-	uid, err := uuid.NewV4()
-	if err != nil {
-		return nil, err
-	}
-
-	routerEndpoint := fmt.Sprintf("inproc://%s", uid)
-
 	c := &Client{
 		endpoint:       endpoint,
 		context:        context,
-		routerEndpoint: routerEndpoint,
+		asyncPoolSize: 6,
 	}
 
 	return c, nil
+}
+
+func (c *Client) SetAsyncPoolSize(size uint) {
+	c.asyncPoolSize = size
 }
 
 /*
@@ -92,10 +91,10 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 		return nil, err
 	}
 	var endpoint string
-	if c.routerSocket == nil {
+	if c.asyncRouterEndpoints == nil || len(c.asyncRouterEndpoints) == 0  {
 		endpoint = c.endpoint
 	} else {
-		endpoint = c.routerEndpoint
+		endpoint = c.randRouterEndpoint()
 	}
 	workerSocket, err := c.context.NewSocket(zmq.REQ)
 	if err != nil {
@@ -120,45 +119,75 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 }
 
 func (c *Client) AsyncConnect() error {
-	dealerSocket, err := c.context.NewSocket(zmq.DEALER)
-	if err != nil {
-		return err
-	}
-	if err := dealerSocket.Connect(c.endpoint); err != nil {
-		return err
-	}
+	var n uint
+	for n < c.asyncPoolSize {
+		dealerSocket, err := c.context.NewSocket(zmq.DEALER)
+		if err != nil {
+			continue
+		}
+		if err := dealerSocket.Connect(c.endpoint); err != nil {
+			continue
+		}
 
-	routerSocket, err := c.context.NewSocket(zmq.ROUTER)
-	if err != nil {
-		return err
+		uid, err := uuid.NewV4()
+		if err != nil {
+			dealerSocket.Close()
+			continue
+		}
+
+		routerEndpoint := fmt.Sprintf("inproc://%s", uid)
+
+		routerSocket, err := c.context.NewSocket(zmq.ROUTER)
+		if err != nil {
+			dealerSocket.Close()
+			continue
+		}
+		if err := routerSocket.Bind(routerEndpoint); err != nil {
+			dealerSocket.Close()
+			continue
+		}
+		c.asyncDealerPool = append(c.asyncDealerPool, dealerSocket)
+		c.asyncRouterPool = append(c.asyncRouterPool, routerSocket)
+		c.asyncRouterEndpoints = append(c.asyncRouterEndpoints, routerEndpoint)
+		go zmq.Proxy(dealerSocket, routerSocket, nil)
+		n += 1
 	}
-	if err := routerSocket.Bind(c.routerEndpoint); err != nil {
-		return err
-	}
-	c.dealerSocket = dealerSocket
-	c.routerSocket = routerSocket
-	go zmq.Proxy(c.dealerSocket, c.routerSocket, nil)
 	return nil
 }
 
 func (c *Client) DisableAsync() {
-	if c.dealerSocket != nil {
-		c.dealerSocket.Close()
-		c.dealerSocket = nil
+	for _, dealerSocket := range c.asyncDealerPool {
+		if dealerSocket != nil {
+			dealerSocket.Close()
+		}
 	}
-	if c.routerSocket != nil {
-		c.routerSocket.Close()
-		c.routerSocket = nil
+	c.asyncDealerPool = []*zmq.Socket{}
+
+	for _, routerSocket := range c.asyncRouterPool {
+		if routerSocket != nil {
+			routerSocket.Close()
+		}
 	}
+	c.asyncRouterPool = []*zmq.Socket{}
+	c.asyncRouterEndpoints = []string{}
 }
 
 // Closes the ZeroMQ socket
 func (c *Client) Close() {
-	if c.dealerSocket != nil {
-		c.dealerSocket.Close()	
-	}
-	if c.routerSocket != nil {
-		c.routerSocket.Close()
-	}
+	c.DisableAsync()
 	c.context.Term()
+}
+
+func randNum(from int, to int) int {
+	if from == to {
+		return to
+	}
+	if from > to {
+		from, to = to, from
+	}
+	return rand.Intn(to-from) + from
+}
+
+func (c *Client) randRouterEndpoint() string {
+	return c.asyncRouterEndpoints[randNum(0, len(c.asyncRouterEndpoints))]
 }
