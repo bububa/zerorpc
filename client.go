@@ -12,10 +12,9 @@ import (
 type Client struct {
 	endpoint       string
 	context        *zmq.Context
-	asyncPoolSize uint
-	asyncDealerPool []*zmq.Socket
-	asyncRouterPool []*zmq.Socket
-	asyncRouterEndpoints []string
+	dealerPool []*zmq.Socket
+	routerPool []*zmq.Socket
+	routerEndpoints []string
 }
 
 // Connects to a ZeroRPC endpoint and returns a pointer to the new client
@@ -28,14 +27,9 @@ func NewClient(endpoint string) (*Client, error) {
 	c := &Client{
 		endpoint:       endpoint,
 		context:        context,
-		asyncPoolSize: 6,
 	}
 
 	return c, nil
-}
-
-func (c *Client) SetAsyncPoolSize(size uint) {
-	c.asyncPoolSize = size
 }
 
 /*
@@ -91,7 +85,7 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 		return nil, err
 	}
 	var endpoint string
-	if c.asyncRouterEndpoints == nil || len(c.asyncRouterEndpoints) == 0  {
+	if c.routerEndpoints == nil || len(c.routerEndpoints) == 0  {
 		endpoint = c.endpoint
 	} else {
 		endpoint = c.randRouterEndpoint()
@@ -118,9 +112,9 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 	return nil, nil
 }
 
-func (c *Client) AsyncConnect() error {
-	var n uint
-	for n < c.asyncPoolSize {
+func (c *Client) ConnectPool(poolSize int) error {
+	var n int
+	for n < poolSize {
 		dealerSocket, err := c.context.NewSocket(zmq.DEALER)
 		if err != nil {
 			continue
@@ -146,35 +140,40 @@ func (c *Client) AsyncConnect() error {
 			dealerSocket.Close()
 			continue
 		}
-		c.asyncDealerPool = append(c.asyncDealerPool, dealerSocket)
-		c.asyncRouterPool = append(c.asyncRouterPool, routerSocket)
-		c.asyncRouterEndpoints = append(c.asyncRouterEndpoints, routerEndpoint)
+		c.dealerPool = append(c.dealerPool, dealerSocket)
+		c.routerPool = append(c.routerPool, routerSocket)
+		c.routerEndpoints = append(c.routerEndpoints, routerEndpoint)
 		go zmq.Proxy(dealerSocket, routerSocket, nil)
 		n += 1
 	}
 	return nil
 }
 
-func (c *Client) DisableAsync() {
-	for _, dealerSocket := range c.asyncDealerPool {
-		if dealerSocket != nil {
-			dealerSocket.Close()
+func (c *Client) DisconnectPool() {
+	c.routerEndpoints = []string{}
+	if c.dealerPool != nil {
+		for _, dealerSocket := range c.dealerPool {
+			if dealerSocket != nil {
+				dealerSocket.Close()
+			}
 		}
 	}
-	c.asyncDealerPool = []*zmq.Socket{}
+	c.dealerPool = []*zmq.Socket{}
 
-	for _, routerSocket := range c.asyncRouterPool {
-		if routerSocket != nil {
-			routerSocket.Close()
+	if c.routerPool != nil {
+		for _, routerSocket := range c.routerPool {
+			if routerSocket != nil {
+				routerSocket.Close()
+			}
 		}
 	}
-	c.asyncRouterPool = []*zmq.Socket{}
-	c.asyncRouterEndpoints = []string{}
+	c.routerPool = []*zmq.Socket{}
+	
 }
 
 // Closes the ZeroMQ socket
 func (c *Client) Close() {
-	c.DisableAsync()
+	c.DisconnectPool()
 	c.context.Term()
 }
 
@@ -189,5 +188,5 @@ func randNum(from int, to int) int {
 }
 
 func (c *Client) randRouterEndpoint() string {
-	return c.asyncRouterEndpoints[randNum(0, len(c.asyncRouterEndpoints))]
+	return c.routerEndpoints[randNum(0, len(c.routerEndpoints))]
 }

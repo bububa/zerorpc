@@ -37,7 +37,7 @@ func main() {
 		panic(err)
 	}
 	defer c.Close()
-	c.AsyncConnect()
+	c.ConnectPool(6)
 	var wg sync.WaitGroup
 	for i := 0; i <= 1000; i++ {
 		wg.Add(1)
@@ -52,7 +52,7 @@ func main() {
 		}()
 	}
 	wg.Wait()
-	c.DisableAsync()
+	c.PoolDisconnect()
 	response, err := c.Invoke("hello", "Syd")
 	fmt.Println(response)
 }
