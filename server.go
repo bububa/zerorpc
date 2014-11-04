@@ -3,7 +3,15 @@ package zerorpc
 import (
 	"errors"
 	zmq "github.com/bububa/zmq4"
+	log "github.com/bububa/factorlog"
 )
+
+var logger *log.FactorLog
+
+// SetLogger 初始化设置logger
+func SetLogger(alogger *log.FactorLog) {
+	logger = alogger
+}
 
 // ZeroRPC server representation,
 // it holds a pointer to the ZeroMQ socket
@@ -143,13 +151,18 @@ func (s *Server) listen() error {
 	if err := workerSocket.Connect(DEALER_ENDPOINT); err != nil {
 		return err
 	}
+	defer workerSocket.Close()
 	var responseEvent *Event
 	var identity string
 	for {
 		barr, err := workerSocket.RecvMessageBytes(0)
+		rev := len(barr)
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
-			sendEvent(workerSocket, responseEvent, identity)
+			ret, _ := sendEvent(workerSocket, responseEvent, identity)
+			if logger != nil {
+				logger.Infof("Unknown\t%d\t%d\t%s", rev, ret, err.Error())
+			}
 			continue
 		}
 		if len(barr) > 1 {
@@ -158,29 +171,43 @@ func (s *Server) listen() error {
 		ev, err := unPackBytes(barr[len(barr)-1])
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
-			sendEvent(workerSocket, responseEvent, identity)
+			ret, _ := sendEvent(workerSocket, responseEvent, identity)
+			if logger != nil {
+				logger.Infof("Unknown\t%d\t%d\t%s", rev, err.Error(),ret, err.Error())
+			}
 			continue
 		}
 		r, err := s.handleTask(ev)
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
-			sendEvent(workerSocket, responseEvent, identity)
+			ret, _ := sendEvent(workerSocket, responseEvent, identity)
+			if logger != nil {
+				logger.Infof("%s\t%d\t%d\t%s", ev.Name, rev, ret, err.Error())
+			}
 			continue
 		}
 		responseEvent, err = newEvent("OK", []interface{}{r})
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 		}
-		sendEvent(workerSocket, responseEvent, identity)
+		ret, _ := sendEvent(workerSocket, responseEvent, identity)
+		if logger != nil {
+			switch responseEvent.Name {
+			case "OK":
+				logger.Infof("%s\t%d\t%d\tOK", ev.Name, rev, ret)
+			default:
+				logger.Infof("%s\t%d\t%d\t%s", ev.Name, rev, ret, err.Error())
+			}
+		}
 	}
 	return nil
 }
 
-func sendEvent(workerSocket *zmq.Socket, responseEvent *Event, identity string) error {
+func sendEvent(workerSocket *zmq.Socket, responseEvent *Event, identity string) (int, error) {
 	responseBytes, err := responseEvent.packBytes()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	workerSocket.SendMessage(identity, responseBytes)
-	return nil
+	return len(responseBytes), nil
 }
