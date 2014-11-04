@@ -6,13 +6,6 @@ import (
 	log "github.com/bububa/factorlog"
 )
 
-var logger *log.FactorLog
-
-// SetLogger 初始化设置logger
-func SetLogger(alogger *log.FactorLog) {
-	logger = alogger
-}
-
 // ZeroRPC server representation,
 // it holds a pointer to the ZeroMQ socket
 type Server struct {
@@ -20,6 +13,7 @@ type Server struct {
 	routerSocket *zmq.Socket
 	dealerSocket *zmq.Socket
 	maxWorkers   int
+	logger *log.FactorLog
 	handlers     map[string]*func(v []interface{}) (interface{}, error)
 }
 
@@ -105,6 +99,12 @@ func NewServer(endpoint string, maxWorkers int) (*Server, error) {
 	return server, nil
 }
 
+
+// SetLogger 初始化设置logger
+func (s *Server) SetLogger(alogger *log.FactorLog) {
+	s.logger = alogger
+}
+
 func (s *Server) Run() {
 	for i := 0; i < s.maxWorkers; i++ {
 		go s.listen()
@@ -160,8 +160,8 @@ func (s *Server) listen() error {
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 			ret, _ := sendEvent(workerSocket, responseEvent, identity)
-			if logger != nil {
-				logger.Infof("Unknown\t%d\t%d\t%s", rev, ret, err.Error())
+			if s.logger != nil {
+				s.logger.Infof("Unknown\t%d\t%d\t%s", rev, ret, err.Error())
 			}
 			continue
 		}
@@ -172,8 +172,8 @@ func (s *Server) listen() error {
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 			ret, _ := sendEvent(workerSocket, responseEvent, identity)
-			if logger != nil {
-				logger.Infof("Unknown\t%d\t%d\t%s", rev, err.Error(),ret, err.Error())
+			if s.logger != nil {
+				s.logger.Infof("Unknown\t%d\t%d\t%s", rev, err.Error(),ret, err.Error())
 			}
 			continue
 		}
@@ -181,8 +181,8 @@ func (s *Server) listen() error {
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 			ret, _ := sendEvent(workerSocket, responseEvent, identity)
-			if logger != nil {
-				logger.Infof("%s\t%d\t%d\t%s", ev.Name, rev, ret, err.Error())
+			if s.logger != nil {
+				s.logger.Infof("%s\t%d\t%d\t%s", ev.Name, rev, ret, err.Error())
 			}
 			continue
 		}
@@ -191,12 +191,12 @@ func (s *Server) listen() error {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 		}
 		ret, _ := sendEvent(workerSocket, responseEvent, identity)
-		if logger != nil {
+		if s.logger != nil {
 			switch responseEvent.Name {
 			case "OK":
-				logger.Infof("%s\t%d\t%d\tOK", ev.Name, rev, ret)
+				s.logger.Infof("%s\t%d\t%d\tOK", ev.Name, rev, ret)
 			default:
-				logger.Infof("%s\t%d\t%d\t%s", ev.Name, rev, ret, err.Error())
+				s.logger.Infof("%s\t%d\t%d\t%s", ev.Name, rev, ret, err.Error())
 			}
 		}
 	}
