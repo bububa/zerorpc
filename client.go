@@ -79,11 +79,7 @@ The client sends heartbeat events every 5 seconds, if twp heartbeat events are m
 the remote is considered as lost and an ErrLostRemote is returned.
 */
 
-func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
-	ev, err := newEvent(name, args)
-	if err != nil {
-		return nil, err
-	}
+func (c *Client) invoke(ev *Event) (*Event, error) {
 	var endpoint string
 	if c.routerEndpoints == nil || len(c.routerEndpoints) == 0 {
 		endpoint = c.endpoint
@@ -112,38 +108,21 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 	return nil, nil
 }
 
+func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
+	ev, err := newEvent(name, args)
+	if err != nil {
+		return nil, err
+	}
+	return c.invoke(ev)
+}
+
 func (c *Client) InvokeBlackHole(name string, args ...interface{}) (*Event, error) {
 	ev, err := newEvent(name, args)
 	if err != nil {
 		return nil, err
 	}
 	ev.toBlackHole()
-	var endpoint string
-	if c.routerEndpoints == nil || len(c.routerEndpoints) == 0 {
-		endpoint = c.endpoint
-	} else {
-		endpoint = c.randRouterEndpoint()
-	}
-	workerSocket, err := c.context.NewSocket(zmq.REQ)
-	if err != nil {
-		return nil, err
-	}
-	defer workerSocket.Close()
-	if err := workerSocket.Connect(endpoint); err != nil {
-		return nil, err
-	}
-	responseBytes, err := ev.packBytes()
-	if err != nil {
-		return nil, err
-	}
-	workerSocket.SendMessage("", responseBytes)
-	var responseEvent *Event
-	for {
-		barr, err := workerSocket.RecvMessageBytes(0)
-		responseEvent, err = unPackBytes(barr[len(barr)-1])
-		return responseEvent, err
-	}
-	return nil, nil
+	return c.invoke(ev)
 }
 
 func (c *Client) ConnectPool(poolSize int) error {
