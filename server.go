@@ -2,8 +2,8 @@ package zerorpc
 
 import (
 	"errors"
-	zmq "github.com/bububa/zmq4"
 	log "github.com/bububa/factorlog"
+	zmq "github.com/bububa/zmq4"
 )
 
 // ZeroRPC server representation,
@@ -13,7 +13,7 @@ type Server struct {
 	routerSocket *zmq.Socket
 	dealerSocket *zmq.Socket
 	maxWorkers   int
-	logger *log.FactorLog
+	logger       *log.FactorLog
 	handlers     map[string]*func(v []interface{}) (interface{}, error)
 }
 
@@ -99,7 +99,6 @@ func NewServer(endpoint string, maxWorkers int) (*Server, error) {
 	return server, nil
 }
 
-
 // SetLogger 初始化设置logger
 func (s *Server) SetLogger(alogger *log.FactorLog) {
 	s.logger = alogger
@@ -173,7 +172,7 @@ func (s *Server) listen() error {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 			ret, _ := sendEvent(workerSocket, responseEvent, identity)
 			if s.logger != nil {
-				s.logger.Infof("Unknown\t%d\t%d\t%s", rev, err.Error(),ret, err.Error())
+				s.logger.Infof("Unknown\t%d\t%d\t%s", rev, err.Error(), ret, err.Error())
 			}
 			continue
 		}
@@ -186,6 +185,10 @@ func (s *Server) listen() error {
 			}
 			continue
 		}
+		if ev.isBlackHole() {
+			r = nil
+		}
+
 		responseEvent, err = newEvent("OK", []interface{}{r})
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})

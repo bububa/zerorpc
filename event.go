@@ -95,6 +95,17 @@ func (e *Event) packBytes() ([]byte, error) {
 	return buf, nil
 }
 
+// Set event as a blackhole message
+func (e *Event) toBlackHole() {
+	e.Header["blackhole"] = true
+}
+
+// Check isBlackHole
+func (e *Event) isBlackHole() bool {
+	_, found := e.Header["blackhole"]
+	return found
+}
+
 // Unpacks an event fom MsgPack bytes
 func unPackBytes(b []byte) (*Event, error) {
 	var mh codec.MsgpackHandle

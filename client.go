@@ -10,10 +10,10 @@ import (
 // ZeroRPC client representation,
 // it holds a pointer to the ZeroMQ socket
 type Client struct {
-	endpoint       string
-	context        *zmq.Context
-	dealerPool []*zmq.Socket
-	routerPool []*zmq.Socket
+	endpoint        string
+	context         *zmq.Context
+	dealerPool      []*zmq.Socket
+	routerPool      []*zmq.Socket
 	routerEndpoints []string
 }
 
@@ -25,8 +25,8 @@ func NewClient(endpoint string) (*Client, error) {
 	}
 
 	c := &Client{
-		endpoint:       endpoint,
-		context:        context,
+		endpoint: endpoint,
+		context:  context,
 	}
 
 	return c, nil
@@ -85,7 +85,41 @@ func (c *Client) Invoke(name string, args ...interface{}) (*Event, error) {
 		return nil, err
 	}
 	var endpoint string
-	if c.routerEndpoints == nil || len(c.routerEndpoints) == 0  {
+	if c.routerEndpoints == nil || len(c.routerEndpoints) == 0 {
+		endpoint = c.endpoint
+	} else {
+		endpoint = c.randRouterEndpoint()
+	}
+	workerSocket, err := c.context.NewSocket(zmq.REQ)
+	if err != nil {
+		return nil, err
+	}
+	defer workerSocket.Close()
+	if err := workerSocket.Connect(endpoint); err != nil {
+		return nil, err
+	}
+	responseBytes, err := ev.packBytes()
+	if err != nil {
+		return nil, err
+	}
+	workerSocket.SendMessage("", responseBytes)
+	var responseEvent *Event
+	for {
+		barr, err := workerSocket.RecvMessageBytes(0)
+		responseEvent, err = unPackBytes(barr[len(barr)-1])
+		return responseEvent, err
+	}
+	return nil, nil
+}
+
+func (c *Client) InvokeBlackHole(name string, args ...interface{}) (*Event, error) {
+	ev, err := newEvent(name, args)
+	if err != nil {
+		return nil, err
+	}
+	ev.toBlackHole()
+	var endpoint string
+	if c.routerEndpoints == nil || len(c.routerEndpoints) == 0 {
 		endpoint = c.endpoint
 	} else {
 		endpoint = c.randRouterEndpoint()
@@ -168,7 +202,7 @@ func (c *Client) DisconnectPool() {
 		}
 	}
 	c.routerPool = []*zmq.Socket{}
-	
+
 }
 
 // Closes the ZeroMQ socket
