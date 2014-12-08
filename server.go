@@ -141,6 +141,14 @@ func (s *Server) handleTask(ev *Event) (interface{}, error) {
 	return nil, ErrNoTaskHandler
 }
 
+func (s *Server) RegistedHandlers() []string {
+	var res []string
+	for name, _ := range s.handlers {
+		res = append(res, name)
+	}
+	return res
+}
+
 func (s *Server) listen() error {
 	workerSocket, err := s.context.NewSocket(zmq.REP)
 	if err != nil {
