@@ -2,10 +2,14 @@ package zerorpc
 
 import (
 	"fmt"
+	"github.com/kisielk/raven-go/raven"
 	uuid "github.com/nu7hatch/gouuid"
 	zmq "github.com/pebbe/zmq4"
 	"math/rand"
+	"runtime/debug"
 )
+
+const SENTRY_DNS = "https://40a8b3a4b5724b73a182a45dd888583e:082932b71c7a489cb32a9813acbb33b4@sentry.xibao100.com/3"
 
 // ZeroRPC client representation,
 // it holds a pointer to the ZeroMQ socket
@@ -80,6 +84,14 @@ the remote is considered as lost and an ErrLostRemote is returned.
 */
 
 func (c *Client) invoke(ev *Event) (*Event, error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			sentry, _ := raven.NewClient(SENTRY_DNS)
+			if sentry != nil {
+				sentry.CaptureMessage(string(debug.Stack()))
+			}
+		}
+	}()
 	var endpoint string
 	if c.routerEndpoints == nil || len(c.routerEndpoints) == 0 {
 		endpoint = c.endpoint
