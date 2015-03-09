@@ -2,8 +2,8 @@ package zerorpc
 
 import (
 	"errors"
-	zmq "github.com/bububa/zmq4"
 	log "github.com/kdar/factorlog"
+	zmq "github.com/pebbe/zmq4"
 )
 
 // ZeroRPC server representation,

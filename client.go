@@ -3,7 +3,7 @@ package zerorpc
 import (
 	"fmt"
 	uuid "github.com/nu7hatch/gouuid"
-	zmq "github.com/bububa/zmq4"
+	zmq "github.com/pebbe/zmq4"
 	"math/rand"
 )
 
