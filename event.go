@@ -4,7 +4,7 @@ import (
 	//"encoding/json"
 	"errors"
 	"github.com/bububa/go/codec"
-	uuid "github.com/bububa/gouuid"
+	uuid "github.com/nu7hatch/gouuid"
 	"reflect"
 	"time"
 )
