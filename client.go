@@ -114,6 +114,9 @@ func (c *Client) invoke(ev *Event) (*Event, error) {
 	var responseEvent *Event
 	for {
 		barr, err := workerSocket.RecvMessageBytes(0)
+		if err != nil {
+			return nil, err
+		}
 		responseEvent, err = unPackBytes(barr[len(barr)-1])
 		return responseEvent, err
 	}
