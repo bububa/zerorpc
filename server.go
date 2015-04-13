@@ -2,6 +2,8 @@ package zerorpc
 
 import (
 	"errors"
+	"fmt"
+	"github.com/getsentry/raven-go"
 	log "github.com/kdar/factorlog"
 	zmq "github.com/pebbe/zmq4"
 )
@@ -14,6 +16,7 @@ type Server struct {
 	dealerSocket *zmq.Socket
 	maxWorkers   int
 	logger       *log.FactorLog
+	sentry       *raven.Client
 	handlers     map[string]*func(v []interface{}) (interface{}, error)
 }
 
@@ -99,6 +102,10 @@ func NewServer(endpoint string, maxWorkers int) (*Server, error) {
 	return server, nil
 }
 
+func (s *Server) SetSentry(sentry *raven.Client) {
+	s.sentry = sentry
+}
+
 // SetLogger 初始化设置logger
 func (s *Server) SetLogger(alogger *log.FactorLog) {
 	s.logger = alogger
@@ -134,6 +141,23 @@ func (s *Server) RegisterTask(name string, handlerFunc *func(v []interface{}) (i
 // Invoke the handler for a task event,
 // it returns ErrNoTaskHandler if no handler is registered for the task
 func (s *Server) handleTask(ev *Event) (interface{}, error) {
+	defer func() {
+		if s.sentry != nil {
+			var packet *raven.Packet
+			switch rval := recover().(type) {
+			case nil:
+				return
+			case error:
+				packet = raven.NewPacket(rval.Error(), raven.NewException(rval, raven.NewStacktrace(2, 3, nil)))
+			default:
+				rvalStr := fmt.Sprint(rval)
+				packet = raven.NewPacket(rvalStr, raven.NewException(errors.New(rvalStr), raven.NewStacktrace(2, 3, nil)))
+			}
+			s.sentry.Capture(packet, nil)
+		} else if recovered := recover(); recovered != nil {
+			s.logger.Error(recovered)
+		}
+	}()
 	if handler, found := s.handlers[ev.Name]; found {
 		return (*handler)(ev.Args)
 	}

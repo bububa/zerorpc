@@ -1,15 +1,14 @@
 package zerorpc
 
 import (
+	"errors"
 	"fmt"
-	"github.com/kisielk/raven-go/raven"
+	"github.com/getsentry/raven-go"
 	uuid "github.com/nu7hatch/gouuid"
 	zmq "github.com/pebbe/zmq4"
+	"log"
 	"math/rand"
-	"runtime/debug"
 )
-
-const SENTRY_DNS = "https://40a8b3a4b5724b73a182a45dd888583e:082932b71c7a489cb32a9813acbb33b4@sentry.xibao100.com/3"
 
 // ZeroRPC client representation,
 // it holds a pointer to the ZeroMQ socket
@@ -19,6 +18,7 @@ type Client struct {
 	dealerPool      []*zmq.Socket
 	routerPool      []*zmq.Socket
 	routerEndpoints []string
+	sentry          *raven.Client
 }
 
 // Connects to a ZeroRPC endpoint and returns a pointer to the new client
@@ -34,6 +34,10 @@ func NewClient(endpoint string) (*Client, error) {
 	}
 
 	return c, nil
+}
+
+func (this *Client) SetSentry(sentry *raven.Client) {
+	this.sentry = sentry
 }
 
 /*
@@ -85,11 +89,20 @@ the remote is considered as lost and an ErrLostRemote is returned.
 
 func (c *Client) invoke(ev *Event) (*Event, error) {
 	defer func() {
-		if recovered := recover(); recovered != nil {
-			sentry, _ := raven.NewClient(SENTRY_DNS)
-			if sentry != nil {
-				sentry.CaptureMessage(string(debug.Stack()))
+		if c.sentry != nil {
+			var packet *raven.Packet
+			switch rval := recover().(type) {
+			case nil:
+				return
+			case error:
+				packet = raven.NewPacket(rval.Error(), raven.NewException(rval, raven.NewStacktrace(2, 3, nil)))
+			default:
+				rvalStr := fmt.Sprint(rval)
+				packet = raven.NewPacket(rvalStr, raven.NewException(errors.New(rvalStr), raven.NewStacktrace(2, 3, nil)))
 			}
+			c.sentry.Capture(packet, nil)
+		} else if recovered := recover(); recovered != nil {
+			log.Println(recovered)
 		}
 	}()
 	var endpoint string
