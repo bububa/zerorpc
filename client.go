@@ -95,12 +95,15 @@ func (c *Client) invoke(ev *Event) (*Event, error) {
 			case nil:
 				return
 			case error:
-				packet = raven.NewPacket(rval.Error(), raven.NewException(rval, raven.NewStacktrace(2, 3, nil)))
+				packet = raven.NewPacket(rval.Error(), raven.NewException(rval, raven.NewStacktrace(0, 3, nil)))
 			default:
 				rvalStr := fmt.Sprint(rval)
-				packet = raven.NewPacket(rvalStr, raven.NewException(errors.New(rvalStr), raven.NewStacktrace(2, 3, nil)))
+				packet = raven.NewPacket(rvalStr, raven.NewException(errors.New(rvalStr), raven.NewStacktrace(0, 3, nil)))
 			}
-			c.sentry.Capture(packet, nil)
+			_, ch := c.sentry.Capture(packet, nil)
+			if errSentry := <-ch; errSentry != nil {
+				log.Println(errSentry)
+			}
 		} else if recovered := recover(); recovered != nil {
 			log.Println(recovered)
 		}

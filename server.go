@@ -148,12 +148,15 @@ func (s *Server) handleTask(ev *Event) (interface{}, error) {
 			case nil:
 				return
 			case error:
-				packet = raven.NewPacket(rval.Error(), raven.NewException(rval, raven.NewStacktrace(2, 3, nil)))
+				packet = raven.NewPacket(rval.Error(), raven.NewException(rval, raven.NewStacktrace(0, 3, nil)))
 			default:
 				rvalStr := fmt.Sprint(rval)
-				packet = raven.NewPacket(rvalStr, raven.NewException(errors.New(rvalStr), raven.NewStacktrace(2, 3, nil)))
+				packet = raven.NewPacket(rvalStr, raven.NewException(errors.New(rvalStr), raven.NewStacktrace(0, 3, nil)))
 			}
-			s.sentry.Capture(packet, nil)
+			_, ch := s.sentry.Capture(packet, nil)
+			if errSentry := <-ch; errSentry != nil {
+				s.logger.Error(errSentry)
+			}
 		} else if recovered := recover(); recovered != nil {
 			s.logger.Error(recovered)
 		}
