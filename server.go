@@ -6,6 +6,7 @@ import (
 	"github.com/getsentry/raven-go"
 	log "github.com/kdar/factorlog"
 	zmq "github.com/pebbe/zmq4"
+	"time"
 )
 
 // ZeroRPC server representation,
@@ -189,13 +190,14 @@ func (s *Server) listen() error {
 	var responseEvent *Event
 	var identity string
 	for {
+		startT := time.Now()
 		barr, err := workerSocket.RecvMessageBytes(0)
 		rev := len(barr)
 		if err != nil {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 			ret, _ := sendEvent(workerSocket, responseEvent, identity)
 			if s.logger != nil {
-				s.logger.Infof("Unknown\t%d\t%d\t%s", rev, ret, err.Error())
+				s.logger.Infof("Unknown\t%d\t%d\t%d\t%s", rev, ret, time.Now().Sub(startT), err.Error())
 			}
 			continue
 		}
@@ -207,7 +209,7 @@ func (s *Server) listen() error {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 			ret, _ := sendEvent(workerSocket, responseEvent, identity)
 			if s.logger != nil {
-				s.logger.Infof("Unknown\t%d\t%d\t%s", rev, err.Error(), ret, err.Error())
+				s.logger.Infof("Unknown\t%d\t%d\t%d\t%s", rev, err.Error(), ret, time.Now().Sub(startT), err.Error())
 			}
 			continue
 		}
@@ -216,7 +218,7 @@ func (s *Server) listen() error {
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 			ret, _ := sendEvent(workerSocket, responseEvent, identity)
 			if s.logger != nil {
-				s.logger.Infof("%s\t%d\t%d\t%s", ev.Name, rev, ret, err.Error())
+				s.logger.Infof("%s\t%d\t%d\t%d\t%s", ev.Name, rev, ret, time.Now().Sub(startT), err.Error())
 			}
 			continue
 		}
@@ -232,9 +234,9 @@ func (s *Server) listen() error {
 		if s.logger != nil {
 			switch responseEvent.Name {
 			case "OK":
-				s.logger.Infof("%s\t%d\t%d\tOK", ev.Name, rev, ret)
+				s.logger.Infof("%s\t%d\t%d\t%d\tOK", ev.Name, rev, ret, time.Now().Sub(startT))
 			default:
-				s.logger.Infof("%s\t%d\t%d\t%s", ev.Name, rev, ret, err.Error())
+				s.logger.Infof("%s\t%d\t%d\t%d\t%s", ev.Name, rev, ret, time.Now().Sub(startT), err.Error())
 			}
 		}
 	}
