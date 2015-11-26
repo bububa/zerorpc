@@ -157,6 +157,7 @@ func (c *Client) InvokeBlackHole(name string, args ...interface{}) (*Event, erro
 }
 
 func (c *Client) ConnectPool(poolSize int) error {
+	defer recover()
 	var n int
 	for n < poolSize {
 		dealerSocket, err := c.context.NewSocket(zmq.DEALER)
