@@ -6,6 +6,11 @@ import (
 	"github.com/getsentry/raven-go"
 	log "github.com/kdar/factorlog"
 	zmq "github.com/pebbe/zmq4"
+	"github.com/samuel/go-zookeeper/zk"
+	"os"
+	"path"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -15,6 +20,9 @@ type Server struct {
 	context      *zmq.Context
 	routerSocket *zmq.Socket
 	dealerSocket *zmq.Socket
+	zkPath       string
+	hostname     string
+	zkConn       *zk.Conn
 	maxWorkers   int
 	logger       *log.FactorLog
 	sentry       *raven.Client
@@ -67,7 +75,21 @@ It also supports first class exceptions, in case of the handler function returns
 the args of the event passed to the client is an array which is [err.Error(), nil, nil]
 */
 
-func NewServer(endpoint string, maxWorkers int) (*Server, error) {
+func NewServer(endpoint string, zkHosts []string, zooPath string, maxWorkers int) (*Server, error) {
+	zoo, _, err := zk.Connect(zkHosts, time.Second*10)
+	if err != nil {
+		return nil, err
+	}
+	_, err = CreateRecursive(zoo, zooPath, "", 0, DefaultDirACLs())
+	if err != nil {
+		return nil, err
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, err
+	}
+	tmpArr := strings.Split(endpoint, ":")
+	host := fmt.Sprintf("%s:%s", hostname, tmpArr[len(tmpArr)-1])
 	context, err := zmq.NewContext()
 	if err != nil {
 		return nil, err
@@ -96,6 +118,9 @@ func NewServer(endpoint string, maxWorkers int) (*Server, error) {
 		context:      context,
 		routerSocket: routerSocket,
 		dealerSocket: dealerSocket,
+		hostname:     host,
+		zkPath:       zooPath,
+		zkConn:       zoo,
 		maxWorkers:   maxWorkers,
 		handlers:     make(map[string]*func(v []interface{}) (interface{}, error)),
 	}
@@ -112,16 +137,43 @@ func (s *Server) SetLogger(alogger *log.FactorLog) {
 	s.logger = alogger
 }
 
-func (s *Server) Run() {
+func (s *Server) createZkNode() error {
+	zkTicker := time.NewTicker(time.Second * 1)
+	for {
+		select {
+		case <-zkTicker.C:
+			_, err := s.zkConn.Create(path.Join(s.zkPath, s.hostname), nil, zk.FlagEphemeral, zk.WorldACL(zk.PermAll))
+			if ErrorEqual(err, zk.ErrNodeExists) {
+				continue
+			} else if err != nil {
+				return err
+			} else {
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Server) Run() error {
+	err := s.createZkNode()
+	if err != nil {
+		return err
+	}
 	for i := 0; i < s.maxWorkers; i++ {
 		go s.listen()
 	}
-
 	zmq.Proxy(s.routerSocket, s.dealerSocket, nil)
+	return nil
 }
 
 // Closes the ZeroMQ socket
 func (s *Server) Close() {
+	err := s.zkConn.Delete(path.Join(s.zkPath, s.hostname), 0)
+	if err != nil {
+		s.logger.Error(err)
+	}
+	s.zkConn.Close()
 	s.routerSocket.Close()
 	s.dealerSocket.Close()
 	s.context.Term()
@@ -194,6 +246,9 @@ func (s *Server) listen() error {
 		barr, err := workerSocket.RecvMessageBytes(0)
 		rev := len(barr)
 		if err != nil {
+			if ErrorEqual(err, zmq.ETERM) || ErrorEqual(err, syscall.EINTR) {
+				return err
+			}
 			responseEvent, _ = newEvent("ERR", []interface{}{err.Error(), nil, nil})
 			ret, _ := sendEvent(workerSocket, responseEvent, identity)
 			if s.logger != nil {

@@ -184,3 +184,13 @@ func unPackBytes(b []byte) (*Event, error) {
 
 	return &e, nil
 }
+
+// Returns a pointer to a new heartbeat event
+func newHeartbeatEvent() (*Event, error) {
+	ev, err := newEvent("_zpc_hb", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return ev, nil
+}

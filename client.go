@@ -4,33 +4,53 @@ import (
 	"errors"
 	"fmt"
 	"github.com/getsentry/raven-go"
-	uuid "github.com/nu7hatch/gouuid"
 	zmq "github.com/pebbe/zmq4"
+	"github.com/samuel/go-zookeeper/zk"
 	"log"
-	"math/rand"
+	"time"
+)
+
+const (
+	MAX_RETRIES = 5
 )
 
 // ZeroRPC client representation,
 // it holds a pointer to the ZeroMQ socket
 type Client struct {
-	endpoint        string
-	context         *zmq.Context
-	dealerPool      []*zmq.Socket
-	routerPool      []*zmq.Socket
-	routerEndpoints []string
-	sentry          *raven.Client
+	endpoint string
+	context  *zmq.Context
+	cluster  *Cluster
+	sentry   *raven.Client
 }
 
 // Connects to a ZeroRPC endpoint and returns a pointer to the new client
-func NewClient(endpoint string) (*Client, error) {
+func NewClient(zkHosts []string, zkPath string) (*Client, error) {
+	zkConn, _, err := zk.Connect(zkHosts, time.Second*10)
+	if err != nil {
+		return nil, err
+	}
 	context, err := zmq.NewContext()
 	if err != nil {
 		return nil, err
 	}
 
 	c := &Client{
-		endpoint: endpoint,
+		context: context,
+		cluster: NewCluster(zkConn, zkPath),
+	}
+
+	return c, nil
+}
+
+func NewSingleClient(endpoint string) (*Client, error) {
+	context, err := zmq.NewContext()
+	if err != nil {
+		return nil, err
+	}
+
+	c := &Client{
 		context:  context,
+		endpoint: endpoint,
 	}
 
 	return c, nil
@@ -108,19 +128,38 @@ func (c *Client) invoke(ev *Event) (*Event, error) {
 			log.Println(recovered)
 		}
 	}()
-	var endpoint string
-	if c.routerEndpoints == nil || len(c.routerEndpoints) == 0 {
-		endpoint = c.endpoint
-	} else {
-		endpoint = c.randRouterEndpoint()
-	}
 	workerSocket, err := c.context.NewSocket(zmq.REQ)
 	if err != nil {
 		return nil, err
 	}
 	defer workerSocket.Close()
-	if err := workerSocket.Connect(endpoint); err != nil {
-		return nil, err
+	var (
+		connectionErr error
+		retry         int
+	)
+	for retry < MAX_RETRIES {
+		var endpoint string
+		if c.endpoint != "" {
+			endpoint = c.endpoint
+		} else {
+			node := c.cluster.RandNode()
+			if node == "" {
+				connectionErr = errors.New("No Available RPC Node")
+				retry += 1
+				continue
+			}
+			endpoint = fmt.Sprintf("tcp://%s", node)
+		}
+		if connectionErr = workerSocket.Connect(endpoint); connectionErr != nil {
+			retry += 1
+			continue
+		} else {
+			connectionErr = nil
+			break
+		}
+	}
+	if connectionErr != nil {
+		return nil, connectionErr
 	}
 	responseBytes, err := ev.packBytes()
 	if err != nil {
@@ -156,82 +195,14 @@ func (c *Client) InvokeBlackHole(name string, args ...interface{}) (*Event, erro
 	return c.invoke(ev)
 }
 
-func (c *Client) ConnectPool(poolSize int) error {
-	defer recover()
-	var n int
-	for n < poolSize {
-		dealerSocket, err := c.context.NewSocket(zmq.DEALER)
-		if err != nil {
-			continue
-		}
-		if err := dealerSocket.Connect(c.endpoint); err != nil {
-			continue
-		}
-
-		uid, err := uuid.NewV4()
-		if err != nil {
-			dealerSocket.Close()
-			continue
-		}
-
-		routerEndpoint := fmt.Sprintf("inproc://%s", uid)
-
-		routerSocket, err := c.context.NewSocket(zmq.ROUTER)
-		if err != nil {
-			dealerSocket.Close()
-			continue
-		}
-		if err := routerSocket.Bind(routerEndpoint); err != nil {
-			dealerSocket.Close()
-			continue
-		}
-		c.dealerPool = append(c.dealerPool, dealerSocket)
-		c.routerPool = append(c.routerPool, routerSocket)
-		c.routerEndpoints = append(c.routerEndpoints, routerEndpoint)
-		go zmq.Proxy(dealerSocket, routerSocket, nil)
-		n += 1
-	}
-	return nil
-}
-
-func (c *Client) DisconnectPool() {
-	c.routerEndpoints = []string{}
-	if c.dealerPool != nil {
-		for _, dealerSocket := range c.dealerPool {
-			if dealerSocket != nil {
-				dealerSocket.Close()
-			}
-		}
-	}
-	c.dealerPool = []*zmq.Socket{}
-
-	if c.routerPool != nil {
-		for _, routerSocket := range c.routerPool {
-			if routerSocket != nil {
-				routerSocket.Close()
-			}
-		}
-	}
-	c.routerPool = []*zmq.Socket{}
-
+func (c *Client) Connect() {
+	c.cluster.Connect()
 }
 
 // Closes the ZeroMQ socket
 func (c *Client) Close() {
-	c.DisconnectPool()
+	if c.cluster != nil {
+		c.cluster.Close()
+	}
 	c.context.Term()
-}
-
-func randNum(from int, to int) int {
-	if from == to {
-		return to
-	}
-	if from > to {
-		from, to = to, from
-	}
-	return rand.Intn(to-from) + from
-}
-
-func (c *Client) randRouterEndpoint() string {
-	return c.routerEndpoints[randNum(0, len(c.routerEndpoints))]
 }
