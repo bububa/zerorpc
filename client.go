@@ -142,7 +142,7 @@ func (c *Client) invoke(ev *Event) (*Event, error) {
 		if c.endpoint != "" {
 			endpoint = c.endpoint
 		} else {
-			node := c.cluster.RandNode()
+			node := c.cluster.GetNode()
 			if node == "" {
 				connectionErr = errors.New("No Available RPC Node")
 				retry += 1

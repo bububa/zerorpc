@@ -2,7 +2,9 @@ package zerorpc
 
 import (
 	"github.com/samuel/go-zookeeper/zk"
+	"github.com/xtgo/set"
 	"path"
+	"sort"
 )
 
 const (
@@ -61,3 +63,26 @@ func WatchChildren(conn *zk.Conn, path string, onChange func(children []string))
 		}
 	}
 }
+
+type StringSet []string
+
+func NewStringSet(v ...string) StringSet {
+	s := StringSet{}
+	if len(v) > 0 {
+		s = s.Add(v...)
+	}
+	return s
+}
+
+func (s StringSet) Do(op set.Op, t StringSet) StringSet {
+	data := append(s, t...)
+	n := op(sort.StringSlice(data), len(s))
+	return data[:n]
+}
+
+func (s StringSet) Union(t StringSet) StringSet  { return s.Do(set.Union, t) }
+func (s StringSet) Inter(t StringSet) StringSet  { return s.Do(set.Inter, t) }
+func (s StringSet) Diff(t StringSet) StringSet   { return s.Do(set.Diff, t) }
+func (s StringSet) Add(v ...string) StringSet    { return s.Union(StringSet(v)) }
+func (s StringSet) Remove(v ...string) StringSet { return s.Diff(NewStringSet(v...)) }
+func (s StringSet) Exists(v string) bool         { return len(s.Inter(StringSet{v})) != 0 }

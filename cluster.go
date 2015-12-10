@@ -1,15 +1,17 @@
 package zerorpc
 
 import (
+	"container/list"
 	"github.com/samuel/go-zookeeper/zk"
-	"math/rand"
 	"sync"
 )
 
 type Nodes struct {
-	items []string
+	elements *list.List
+	items    map[string]*list.Element
 	sync.RWMutex
 }
+
 type Cluster struct {
 	nodes  *Nodes
 	zkConn *zk.Conn
@@ -19,23 +21,42 @@ type Cluster struct {
 }
 
 func NewNodes() *Nodes {
-	return &Nodes{}
+	return &Nodes{elements: list.New(), items: make(map[string]*list.Element)}
 }
 
-func (this *Nodes) RandNode() string {
-	this.RLock()
-	defer this.RUnlock()
-	total := len(this.items)
-	if total == 0 {
+func (this *Nodes) Get() string {
+	this.Lock()
+	defer this.Unlock()
+	if len(this.items) == 0 {
 		return ""
 	}
-	return this.items[randNum(0, total)]
+	element := this.elements.Front()
+	this.elements.MoveToBack(element)
+	return element.Value.(string)
 }
 
 func (this *Nodes) Update(nodes []string) {
 	this.Lock()
 	this.Unlock()
-	this.items = nodes
+	for _, node := range nodes {
+		if _, ok := this.items[node]; ok {
+			continue
+		}
+		element := this.elements.PushFront(node)
+		this.items[node] = element
+	}
+	var oldNodes []string
+	for node, _ := range this.items {
+		oldNodes = append(oldNodes, node)
+	}
+	nodeSet := NewStringSet(nodes...)
+	removeNodeSet := NewStringSet(oldNodes...).Diff(nodeSet)
+	for _, node := range removeNodeSet {
+		if element, found := this.items[node]; found {
+			this.elements.Remove(element)
+			delete(this.items, node)
+		}
+	}
 }
 
 func NewCluster(zkConn *zk.Conn, zkPath string) *Cluster {
@@ -70,16 +91,6 @@ func (c *Cluster) updateNodes(nodes []string) {
 	c.nodes.Update(nodes)
 }
 
-func (c *Cluster) RandNode() string {
-	return c.nodes.RandNode()
-}
-
-func randNum(from int, to int) int {
-	if from == to {
-		return to
-	}
-	if from > to {
-		from, to = to, from
-	}
-	return rand.Intn(to-from) + from
+func (c *Cluster) GetNode() string {
+	return c.nodes.Get()
 }

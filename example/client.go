@@ -32,7 +32,7 @@ type Tmp struct {
 }
 
 func main() {
-	c, err := zerorpc.NewClient("router1:2181,code1:2181,code2:2181,code3:2181,code4:2181,code5:2181,code6:2181", "/services/rpc/dsp")
+	c, err := zerorpc.NewClient([]string{"router1:2181", "code1:2181", "code2:2181", "code3:2181", "code4:2181", "code5:2181", "code6:2181"}, "/services/rpc/dsp")
 	if err != nil {
 		panic(err)
 	}
