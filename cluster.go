@@ -37,7 +37,7 @@ func (this *Nodes) Get() string {
 
 func (this *Nodes) Update(nodes []string) {
 	this.Lock()
-	this.Unlock()
+	defer this.Unlock()
 	for _, node := range nodes {
 		if _, ok := this.items[node]; ok {
 			continue
