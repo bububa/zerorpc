@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -26,6 +27,7 @@ type Server struct {
 	maxWorkers   int
 	logger       *log.FactorLog
 	sentry       *raven.Client
+	wg           sync.WaitGroup
 	handlers     map[string]*func(v []interface{}) (interface{}, error)
 }
 
@@ -176,7 +178,8 @@ func (s *Server) Close() {
 	s.zkConn.Close()
 	s.routerSocket.Close()
 	s.dealerSocket.Close()
-	s.context.Term()
+	//s.context.Term()
+	s.wg.Wait()
 }
 
 // Register a task handler,
@@ -214,6 +217,8 @@ func (s *Server) handleTask(ev *Event) (interface{}, error) {
 			s.logger.Error(recovered)
 		}
 	}()
+	s.wg.Add(1)
+	defer s.wg.Done()
 	if handler, found := s.handlers[ev.Name]; found {
 		return (*handler)(ev.Args)
 	}
